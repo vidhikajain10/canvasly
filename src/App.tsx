@@ -14,6 +14,7 @@ function App() {
   const [size, setSize] = useState(3);
   const [name, setName] = useState("Guest");
   const [room, setRoom] = useState("main");
+  const [users, setUsers] = useState(1);
 
   const clearCanvas = () => {
     const canvas = canvasRef.current;
@@ -24,7 +25,14 @@ function App() {
     }
   };
 
-  const drawLine = (data: any) => {
+  const drawLine = (data: {
+    x: number;
+    y: number;
+    lastX: number;
+    lastY: number;
+    color: string;
+    size: number;
+  }) => {
     const ctx = canvasRef.current?.getContext("2d");
 
     if (!ctx) return;
@@ -41,13 +49,16 @@ function App() {
 
   useEffect(() => {
     const socket = new WebSocket(WS_URL);
+
     socketRef.current = socket;
 
     socket.onopen = () => {
-      socket.send(JSON.stringify({
-        type: "join",
-        room
-      }));
+      socket.send(
+        JSON.stringify({
+          type: "join",
+          room,
+        })
+      );
     };
 
     socket.onmessage = (event) => {
@@ -60,9 +71,15 @@ function App() {
       if (data.type === "clear") {
         clearCanvas();
       }
+
+      if (data.type === "users") {
+        setUsers(data.count);
+      }
     };
 
-    return () => socket.close();
+    return () => {
+      socket.close();
+    };
   }, [room]);
 
   const startDrawing = (e: MouseEvent<HTMLCanvasElement>) => {
@@ -70,7 +87,7 @@ function App() {
 
     lastPoint.current = {
       x: e.nativeEvent.offsetX,
-      y: e.nativeEvent.offsetY
+      y: e.nativeEvent.offsetY,
     };
   };
 
@@ -86,7 +103,7 @@ function App() {
       color,
       size,
       room,
-      name
+      name,
     };
 
     drawLine(data);
@@ -97,8 +114,12 @@ function App() {
 
     lastPoint.current = {
       x: data.x,
-      y: data.y
+      y: data.y,
     };
+  };
+
+  const stopDrawing = () => {
+    setDrawing(false);
   };
 
   const clear = () => {
@@ -108,7 +129,7 @@ function App() {
       socketRef.current.send(
         JSON.stringify({
           type: "clear",
-          room
+          room,
         })
       );
     }
@@ -118,6 +139,10 @@ function App() {
     <div className="app">
       <header>
         <h1>Canvasly</h1>
+
+        <span className="online">
+          🟢 {users} online
+        </span>
 
         <div className="info">
           <input
@@ -165,8 +190,8 @@ function App() {
           height={700}
           onMouseDown={startDrawing}
           onMouseMove={draw}
-          onMouseUp={() => setDrawing(false)}
-          onMouseLeave={() => setDrawing(false)}
+          onMouseUp={stopDrawing}
+          onMouseLeave={stopDrawing}
         />
       </main>
     </div>
