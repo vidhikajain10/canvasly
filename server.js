@@ -1,26 +1,42 @@
 import http from "http";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
 import { WebSocketServer } from "ws";
 import crypto from "crypto";
 
 const port = process.env.PORT || 3001;
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataFile = path.join(__dirname, "canvasly-boards.json");
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-let boards = {};
-try {
-  if (fs.existsSync(dataFile)) boards = JSON.parse(fs.readFileSync(dataFile, "utf8"));
-} catch (error) {
-  console.error("Could not load saved boards", error);
+async function loadBoard(room) {
+  if (!supabaseUrl || !supabaseKey) return [];
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/boards?room_id=eq.${encodeURIComponent(room)}&select=elements`, {
+      headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` }
+    });
+    if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+    const rows = await response.json();
+    return Array.isArray(rows[0]?.elements) ? rows[0].elements : [];
+  } catch (error) {
+    console.error("Supabase load failed:", error);
+    return [];
+  }
 }
 
-function saveBoards() {
+async function saveBoard(room, elements) {
+  if (!supabaseUrl || !supabaseKey) return;
   try {
-    fs.writeFileSync(dataFile, JSON.stringify(boards));
+    const response = await fetch(`${supabaseUrl}/rest/v1/boards`, {
+      method: "POST",
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal"
+      },
+      body: JSON.stringify({ room_id: room, elements, updated_at: new Date().toISOString() })
+    });
+    if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
   } catch (error) {
-    console.error("Could not save boards", error);
+    console.error("Supabase save failed:", error);
   }
 }
 
@@ -31,12 +47,7 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server });
 const users = new Map();
-
-function roomUsers(room) {
-  let count = 0;
-  for (const value of users.values()) if (value.room === room) count++;
-  return count;
-}
+const boards = new Map();
 
 function send(socket, message) {
   if (socket.readyState === 1) socket.send(JSON.stringify(message));
@@ -49,10 +60,14 @@ function broadcast(room, message, except = null) {
 }
 
 function announceUsers(room) {
-  broadcast(room, { type: "users", count: roomUsers(room) });
-  for (const [socket, info] of users) {
-    if (info.room === room) send(socket, { type: "users", count: roomUsers(room) });
-  }
+  let count = 0;
+  for (const info of users.values()) if (info.room === room) count++;
+  for (const [socket, info] of users) if (info.room === room) send(socket, { type: "users", count });
+}
+
+async function getBoard(room) {
+  if (!boards.has(room)) boards.set(room, await loadBoard(room));
+  return boards.get(room);
 }
 
 wss.on("connection", (socket) => {
@@ -60,7 +75,7 @@ wss.on("connection", (socket) => {
   users.set(socket, { id, room: null, name: "Guest" });
   send(socket, { type: "welcome", id });
 
-  socket.on("message", (raw) => {
+  socket.on("message", async (raw) => {
     try {
       const data = JSON.parse(raw.toString());
       const info = users.get(socket);
@@ -69,12 +84,14 @@ wss.on("connection", (socket) => {
       if (data.type === "join") {
         const room = String(data.room || "main").trim() || "main";
         const oldRoom = info.room;
-        if (oldRoom && oldRoom !== room) announceUsers(oldRoom);
+        if (oldRoom && oldRoom !== room) {
+          broadcast(oldRoom, { type: "user_left", id });
+          announceUsers(oldRoom);
+        }
         info.room = room;
         info.name = String(data.name || "Guest").slice(0, 30);
-        if (!boards[room]) boards[room] = [];
-        send(socket, { type: "sync", elements: boards[room] });
-        send(socket, { type: "users", count: roomUsers(room) });
+        const elements = await getBoard(room);
+        send(socket, { type: "sync", elements });
         announceUsers(room);
         return;
       }
@@ -83,27 +100,28 @@ wss.on("connection", (socket) => {
       const room = info.room;
 
       if (data.type === "draw" && data.element?.id) {
-        const element = data.element;
-        const board = boards[room] || [];
-        const index = board.findIndex((item) => item.id === element.id);
-        if (index === -1) board.push(element);
-        else board[index] = element;
-        boards[room] = board;
-        saveBoards();
-        broadcast(room, { type: "draw", element }, socket);
+        const board = await getBoard(room);
+        const index = board.findIndex((item) => item.id === data.element.id);
+        if (index === -1) board.push(data.element);
+        else board[index] = data.element;
+        boards.set(room, board);
+        await saveBoard(room, board);
+        broadcast(room, { type: "draw", element: data.element }, socket);
         return;
       }
 
       if (data.type === "remove" && data.id) {
-        boards[room] = (boards[room] || []).filter((item) => item.id !== data.id);
-        saveBoards();
+        const board = await getBoard(room);
+        const next = board.filter((item) => item.id !== data.id);
+        boards.set(room, next);
+        await saveBoard(room, next);
         broadcast(room, { type: "remove", id: data.id }, socket);
         return;
       }
 
       if (data.type === "clear") {
-        boards[room] = [];
-        saveBoards();
+        boards.set(room, []);
+        await saveBoard(room, []);
         broadcast(room, { type: "clear" }, socket);
         return;
       }
@@ -118,18 +136,17 @@ wss.on("connection", (socket) => {
         }, socket);
       }
     } catch (error) {
-      console.error("Invalid message", error);
+      console.error("Invalid message:", error);
     }
   });
 
   socket.on("close", () => {
     const info = users.get(socket);
     if (!info) return;
-    const room = info.room;
     users.delete(socket);
-    if (room) {
-      broadcast(room, { type: "user_left", id: info.id });
-      announceUsers(room);
+    if (info.room) {
+      broadcast(info.room, { type: "user_left", id: info.id });
+      announceUsers(info.room);
     }
   });
 });
