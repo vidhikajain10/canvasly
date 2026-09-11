@@ -15,5 +15,9 @@
     "react": "latest",
     "react-dom": "latest",
     "ws": "latest"
+  },
+  "devDependencies": {
+    "@types/react": "latest",
+    "@types/react-dom": "latest"
   }
 }
