@@ -2,36 +2,27 @@ import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import "./App.css";
 
+const WS_URL = "wss://canvasly-f0et.onrender.com";
+
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const lastPoint = useRef({ x: 0, y: 0 });
-
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
   const [size, setSize] = useState(3);
   const [name, setName] = useState("Guest");
   const [room, setRoom] = useState("main");
 
-  useEffect(() => {
-    const socket = new WebSocket("ws://localhost:3001");
-    socketRef.current = socket;
-
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-
-      if (data.type === "draw") drawLine(data);
-      if (data.type === "clear") clearCanvas();
-    };
-
-    return () => socket.close();
-  }, []);
-
-  const drawLine = (data: any) => {
+  const clearCanvas = () => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx) return;
+    if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+  };
 
+  const drawLine = (data: any) => {
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
     ctx.strokeStyle = data.color;
     ctx.lineWidth = data.size;
     ctx.lineCap = "round";
@@ -40,6 +31,19 @@ function App() {
     ctx.lineTo(data.x, data.y);
     ctx.stroke();
   };
+
+  useEffect(() => {
+    const socket = new WebSocket(WS_URL);
+    socketRef.current = socket;
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === "draw") drawLine(data);
+      if (data.type === "clear") clearCanvas();
+    };
+
+    return () => socket.close();
+  }, []);
 
   const startDrawing = (e: MouseEvent<HTMLCanvasElement>) => {
     setDrawing(true);
@@ -52,13 +56,10 @@ function App() {
   const draw = (e: MouseEvent<HTMLCanvasElement>) => {
     if (!drawing) return;
 
-    const x = e.nativeEvent.offsetX;
-    const y = e.nativeEvent.offsetY;
-
     const data = {
       type: "draw",
-      x,
-      y,
+      x: e.nativeEvent.offsetX,
+      y: e.nativeEvent.offsetY,
       lastX: lastPoint.current.x,
       lastY: lastPoint.current.y,
       color,
@@ -68,22 +69,16 @@ function App() {
     };
 
     drawLine(data);
+
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify(data));
     }
 
-    lastPoint.current = { x, y };
+    lastPoint.current = { x: data.x, y: data.y };
   };
 
-  const stopDrawing = () => setDrawing(false);
-
-  const clearCanvas = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx) return;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
+  const clear = () => {
+    clearCanvas();
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({ type: "clear", room }));
     }
@@ -108,7 +103,7 @@ function App() {
           Size
           <input type="range" min="1" max="20" value={size} onChange={(e) => setSize(Number(e.target.value))} />
         </label>
-        <button onClick={clearCanvas}>Clear</button>
+        <button onClick={clear}>Clear</button>
       </div>
 
       <main>
@@ -118,8 +113,8 @@ function App() {
           height={700}
           onMouseDown={startDrawing}
           onMouseMove={draw}
-          onMouseUp={stopDrawing}
-          onMouseLeave={stopDrawing}
+          onMouseUp={() => setDrawing(false)}
+          onMouseLeave={() => setDrawing(false)}
         />
       </main>
     </div>
