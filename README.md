@@ -1,22 +1,24 @@
 # Canvasly 🎨
 
-**Canvasly** is a real-time collaborative whiteboard where multiple people can draw together in shared rooms.
+**Canvasly** is a real-time collaborative whiteboard where multiple people can draw, edit, and collaborate together in shared rooms.
 
 ## ✨ Features
 
-- Real-time collaborative drawing
-- Shareable room links
+- Real-time collaborative drawing with WebSockets
+- Shareable, room-specific URLs
+- Room isolation and persistent board state
 - Room-specific online user count
 - Live remote cursors with user names
-- Pen, eraser, line, arrow, rectangle and circle tools
+- Select, move, resize, and delete objects
+- Pen, eraser, line, arrow, rectangle, and circle tools
 - Custom colors and brush sizes
 - Undo / redo
-- Clear room for everyone
+- Clear the room for everyone
 - Zoom controls
 - Download the canvas as PNG
-- Automatic WebSocket reconnect
-- Persistent boards with Supabase
-- Responsive interface for desktop and mobile
+- Automatic WebSocket reconnection
+- Supabase persistence across refreshes and reconnects
+- Responsive desktop/mobile interface
 
 ## 🧱 Tech Stack
 
@@ -35,7 +37,7 @@ Browser C ──┘                    │
                                  └── broadcasts room events
 ```
 
-Each room has its own board state. When a user joins a room, the server loads the saved board and synchronizes it to that client. Drawing changes are broadcast to other users and persisted to Supabase.
+Each room has its own board state. When a user joins a room, the server loads that room's saved board and synchronizes it to the client. Drawing and object-editing changes are broadcast to other users and persisted to Supabase.
 
 ## 🔗 Room Sharing
 
@@ -43,7 +45,19 @@ Rooms use the URL format:
 
 `https://your-canvasly-domain/?room=team-project`
 
-Use **Join Room** to switch rooms, then **Share** to copy the current room link.
+Type a room name and choose **Join Room**, then use **Share** to copy a link for that room. Different room names maintain separate boards.
+
+## 🎯 Object Editing
+
+Select **↖ Select** to interact with existing objects:
+
+- Click an object to select it
+- Drag it to move it
+- Drag a corner handle to resize it
+- Press **Delete** or **Backspace** to remove it
+- Use the **Delete** toolbar action as an alternative
+
+Edits use the same WebSocket event stream as drawing, so other users receive the updated object state in real time.
 
 ## 🚀 Deployment
 
@@ -60,7 +74,7 @@ Required environment variables:
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
-Keep the service-role key only on the backend. Never expose it in frontend code or commit it to GitHub.
+Keep the Supabase secret key only on the backend. Never expose it in frontend code or commit it to GitHub.
 
 ## 🗄️ Supabase Table
 
@@ -74,20 +88,23 @@ create table if not exists public.boards (
 alter table public.boards enable row level security;
 ```
 
-## 📌 Current Status
+## 🧪 Final QA Checklist
 
-Canvasly is deployed as a working real-time collaborative canvas with persistent room-based boards.
+- Open two browser tabs in the same room and draw in both directions
+- Verify the online user count changes when a tab closes
+- Switch to a different room and verify its board is isolated
+- Refresh a room and verify its board persists
+- Select, move, resize, and delete objects
+- Verify edits appear for collaborators
+- Test undo / redo and clear
+- Test shareable room links
+- Test zoom and PNG download
+- Confirm reconnect behavior after a temporary connection loss
 
-### Next roadmap
+## 📌 Project Status
 
-- User authentication and profiles
-- Better object selection and movement
-- True geometric eraser / object deletion
-- Board version history
-- Comments / team chat
-- Permissions for room owners
-- Performance improvements for high-frequency pen strokes
+Canvasly is deployed as a working real-time collaborative whiteboard with room-based collaboration, persistent storage, object editing, and responsive UI.
 
 ## 👩‍💻 Project
 
-Built as an R&D project exploring real-time collaboration, WebSockets, browser canvas rendering and persistent shared state.
+Built as an R&D project exploring real-time collaboration, WebSockets, browser Canvas rendering, shared state synchronization, persistence, and frontend interaction design.
