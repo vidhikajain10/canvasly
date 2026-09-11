@@ -1,11 +1,14 @@
 ```tsx
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import "./App.css";
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [drawing, setDrawing] = useState(false);
 
   const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!drawing) return;
+
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
 
@@ -13,6 +16,18 @@ function App() {
 
     ctx.lineTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
     ctx.stroke();
+  };
+
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setDrawing(true);
+
+    const ctx = canvasRef.current?.getContext("2d");
+    ctx?.beginPath();
+    ctx?.moveTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
+  };
+
+  const stopDrawing = () => {
+    setDrawing(false);
   };
 
   const clearCanvas = () => {
@@ -34,11 +49,10 @@ function App() {
       <main>
         <canvas
           ref={canvasRef}
-          onMouseDown={(e) => {
-            canvasRef.current?.getContext("2d")?.beginPath();
-            draw(e);
-          }}
+          onMouseDown={startDrawing}
           onMouseMove={draw}
+          onMouseUp={stopDrawing}
+          onMouseLeave={stopDrawing}
         />
       </main>
     </div>
