@@ -1,169 +1,139 @@
 import http from "http";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { WebSocketServer } from "ws";
+import crypto from "crypto";
 
 const port = process.env.PORT || 3001;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const dataFile = path.join(__dirname, "canvasly-boards.json");
+
+let boards = {};
+try {
+  if (fs.existsSync(dataFile)) boards = JSON.parse(fs.readFileSync(dataFile, "utf8"));
+} catch (error) {
+  console.error("Could not load saved boards", error);
+}
+
+function saveBoards() {
+  try {
+    fs.writeFileSync(dataFile, JSON.stringify(boards));
+  } catch (error) {
+    console.error("Could not save boards", error);
+  }
+}
 
 const server = http.createServer((req, res) => {
-  res.writeHead(200, {
-    "Content-Type": "text/plain",
-  });
-
+  res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("Canvasly server is running");
 });
 
-const wss = new WebSocketServer({
-  server,
-});
+const wss = new WebSocketServer({ server });
+const users = new Map();
 
-const rooms = new Map();
-
-function sendToRoom(room, message, except = null) {
-  wss.clients.forEach((client) => {
-    if (
-      client !== except &&
-      client.readyState === 1 &&
-      rooms.get(client) === room
-    ) {
-      client.send(JSON.stringify(message));
-    }
-  });
+function roomUsers(room) {
+  let count = 0;
+  for (const value of users.values()) if (value.room === room) count++;
+  return count;
 }
 
-function sendUsers(room) {
-  let count = 0;
+function send(socket, message) {
+  if (socket.readyState === 1) socket.send(JSON.stringify(message));
+}
 
-  wss.clients.forEach((client) => {
-    if (
-      client.readyState === 1 &&
-      rooms.get(client) === room
-    ) {
-      count++;
-    }
-  });
+function broadcast(room, message, except = null) {
+  for (const [socket, info] of users) {
+    if (info.room === room && socket !== except && socket.readyState === 1) send(socket, message);
+  }
+}
 
-  sendToRoom(
-    room,
-    {
-      type: "users",
-      count,
-    }
-  );
-
-  wss.clients.forEach((client) => {
-    if (
-      client.readyState === 1 &&
-      rooms.get(client) === room
-    ) {
-      client.send(
-        JSON.stringify({
-          type: "users",
-          count,
-        })
-      );
-    }
-  });
+function announceUsers(room) {
+  broadcast(room, { type: "users", count: roomUsers(room) });
+  for (const [socket, info] of users) {
+    if (info.room === room) send(socket, { type: "users", count: roomUsers(room) });
+  }
 }
 
 wss.on("connection", (socket) => {
-  console.log("User connected");
+  const id = crypto.randomUUID();
+  users.set(socket, { id, room: null, name: "Guest" });
+  send(socket, { type: "welcome", id });
 
-  socket.on("message", (message) => {
+  socket.on("message", (raw) => {
     try {
-      const data = JSON.parse(
-        message.toString()
-      );
-
-      /* JOIN ROOM */
+      const data = JSON.parse(raw.toString());
+      const info = users.get(socket);
+      if (!info) return;
 
       if (data.type === "join") {
-        const room =
-          data.room?.trim() || "main";
-
-        rooms.set(socket, room);
-
-        sendUsers(room);
-
-        console.log(
-          `User joined room: ${room}`
-        );
-
+        const room = String(data.room || "main").trim() || "main";
+        const oldRoom = info.room;
+        if (oldRoom && oldRoom !== room) announceUsers(oldRoom);
+        info.room = room;
+        info.name = String(data.name || "Guest").slice(0, 30);
+        if (!boards[room]) boards[room] = [];
+        send(socket, { type: "sync", elements: boards[room] });
+        send(socket, { type: "users", count: roomUsers(room) });
+        announceUsers(room);
         return;
       }
 
-      const room = rooms.get(socket);
+      if (!info.room) return;
+      const room = info.room;
 
-      if (!room) return;
-
-      /* DRAW */
-
-      if (data.type === "draw") {
-        sendToRoom(
-          room,
-          {
-            type: "draw",
-            element: data.element,
-          },
-          socket
-        );
-
+      if (data.type === "draw" && data.element?.id) {
+        const element = data.element;
+        const board = boards[room] || [];
+        const index = board.findIndex((item) => item.id === element.id);
+        if (index === -1) board.push(element);
+        else board[index] = element;
+        boards[room] = board;
+        saveBoards();
+        broadcast(room, { type: "draw", element }, socket);
         return;
       }
 
-      /* REMOVE / UNDO */
-
-      if (data.type === "remove") {
-        sendToRoom(
-          room,
-          {
-            type: "remove",
-            id: data.id,
-          },
-          socket
-        );
-
+      if (data.type === "remove" && data.id) {
+        boards[room] = (boards[room] || []).filter((item) => item.id !== data.id);
+        saveBoards();
+        broadcast(room, { type: "remove", id: data.id }, socket);
         return;
       }
-
-      /* CLEAR */
 
       if (data.type === "clear") {
-        sendToRoom(
-          room,
-          {
-            type: "clear",
-          },
-          socket
-        );
-
+        boards[room] = [];
+        saveBoards();
+        broadcast(room, { type: "clear" }, socket);
         return;
       }
+
+      if (data.type === "cursor") {
+        broadcast(room, {
+          type: "cursor",
+          id,
+          x: Number(data.x) || 0,
+          y: Number(data.y) || 0,
+          name: String(data.name || info.name || "Guest").slice(0, 30)
+        }, socket);
+      }
     } catch (error) {
-      console.error(
-        "Invalid WebSocket message",
-        error
-      );
+      console.error("Invalid message", error);
     }
   });
 
   socket.on("close", () => {
-    const room = rooms.get(socket);
-
-    rooms.delete(socket);
-
+    const info = users.get(socket);
+    if (!info) return;
+    const room = info.room;
+    users.delete(socket);
     if (room) {
-      sendUsers(room);
+      broadcast(room, { type: "user_left", id: info.id });
+      announceUsers(room);
     }
-
-    console.log("User disconnected");
   });
 });
 
-server.listen(
-  port,
-  "0.0.0.0",
-  () => {
-    console.log(
-      `Canvasly running on port ${port}`
-    );
-  }
-);
+server.listen(port, "0.0.0.0", () => {
+  console.log(`Canvasly running on port ${port}`);
+});
