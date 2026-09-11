@@ -6,6 +6,11 @@ const port = process.env.PORT || 3001;
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "").replace(/\/rest\/v1$/, "");
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+const apiHeaders = () => ({
+  apikey: supabaseKey,
+  "Content-Type": "application/json"
+});
+
 async function loadBoard(room) {
   if (!supabaseUrl || !supabaseKey) {
     console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
@@ -14,10 +19,7 @@ async function loadBoard(room) {
 
   try {
     const response = await fetch(`${supabaseUrl}/rest/v1/boards?room_id=eq.${encodeURIComponent(room)}&select=elements`, {
-      headers: {
-        apikey: supabaseKey,
-        Authorization: `Bearer ${supabaseKey}`
-      }
+      headers: { apikey: supabaseKey }
     });
 
     if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
@@ -36,9 +38,7 @@ async function saveBoard(room, elements) {
     const response = await fetch(`${supabaseUrl}/rest/v1/boards`, {
       method: "POST",
       headers: {
-        apikey: supabaseKey,
-        Authorization: `Bearer ${supabaseKey}`,
-        "Content-Type": "application/json",
+        ...apiHeaders(),
         Prefer: "resolution=merge-duplicates,return=minimal"
       },
       body: JSON.stringify({
