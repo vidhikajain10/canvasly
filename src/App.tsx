@@ -2,11 +2,10 @@
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 
-const WS_URL = "ws://localhost:3001";
-
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const lastPoint = useRef({ x: 0, y: 0 });
 
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
@@ -15,7 +14,7 @@ function App() {
   const [room, setRoom] = useState("main");
 
   useEffect(() => {
-    const socket = new WebSocket(WS_URL);
+    const socket = new WebSocket("ws://localhost:3001");
     socketRef.current = socket;
 
     socket.onmessage = (event) => {
@@ -33,81 +32,52 @@ function App() {
     return () => socket.close();
   }, []);
 
-  const drawLine = ({
-    x,
-    y,
-    lastX,
-    lastY,
-    color,
-    size,
-  }: {
-    x: number;
-    y: number;
-    lastX: number;
-    lastY: number;
-    color: string;
-    size: number;
-  }) => {
+  const drawLine = (data: any) => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
 
     if (!canvas || !ctx) return;
 
-    ctx.strokeStyle = color;
-    ctx.lineWidth = size;
+    ctx.strokeStyle = data.color;
+    ctx.lineWidth = data.size;
     ctx.lineCap = "round";
 
     ctx.beginPath();
-    ctx.moveTo(lastX, lastY);
-    ctx.lineTo(x, y);
+    ctx.moveTo(data.lastX, data.lastY);
+    ctx.lineTo(data.x, data.y);
     ctx.stroke();
   };
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
     setDrawing(true);
-
-    const ctx = canvasRef.current?.getContext("2d");
-    ctx?.beginPath();
+    lastPoint.current = {
+      x: e.nativeEvent.offsetX,
+      y: e.nativeEvent.offsetY,
+    };
   };
 
   const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!drawing) return;
 
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-
-    if (!canvas || !ctx) return;
-
     const x = e.nativeEvent.offsetX;
     const y = e.nativeEvent.offsetY;
 
-    const lastX = ctx.currentTransform.e || x;
-    const lastY = ctx.currentTransform.f || y;
-
-    drawLine({
+    const data = {
+      type: "draw",
       x,
       y,
-      lastX,
-      lastY,
+      lastX: lastPoint.current.x,
+      lastY: lastPoint.current.y,
       color,
       size,
-    });
+      room,
+      name,
+    };
 
-    ctx.setTransform(1, 0, 0, 1, x, y);
+    drawLine(data);
+    socketRef.current?.send(JSON.stringify(data));
 
-    socketRef.current?.send(
-      JSON.stringify({
-        type: "draw",
-        x,
-        y,
-        lastX,
-        lastY,
-        color,
-        size,
-        room,
-        name,
-      })
-    );
+    lastPoint.current = { x, y };
   };
 
   const stopDrawing = () => {
