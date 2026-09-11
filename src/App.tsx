@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { PointerEvent } from "react";
 import "./App.css";
 
 const WS_URL = "wss://canvasly-f0et.onrender.com";
@@ -25,26 +26,27 @@ type Element = {
   user: string;
 };
 
+type Cursor = {
+  x: number;
+  y: number;
+  name: string;
+};
+
 type ServerMessage =
+  | { type: "draw"; element: Element }
+  | { type: "remove"; id: string }
+  | { type: "clear" }
+  | { type: "sync"; elements: Element[] }
+  | { type: "users"; count: number }
   | {
-      type: "draw";
-      element: Element;
-    }
-  | {
-      type: "remove";
+      type: "cursor";
       id: string;
+      x: number;
+      y: number;
+      name: string;
     }
-  | {
-      type: "clear";
-    }
-  | {
-      type: "sync";
-      elements: Element[];
-    }
-  | {
-      type: "users";
-      count: number;
-    };
+  | { type: "user_left"; id: string }
+  | { type: "welcome"; id: string };
 
 const WIDTH = 1200;
 const HEIGHT = 700;
@@ -52,17 +54,25 @@ const HEIGHT = 700;
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const reconnectTimer = useRef<number | null>(null);
+  const activeElementId = useRef<string | null>(null);
+  const elementsRef = useRef<Element[]>([]);
+  const myIdRef = useRef("");
 
   const [tool, setTool] = useState<Tool>("pen");
   const [color, setColor] = useState("#111111");
   const [size, setSize] = useState(4);
+
   const [name, setName] = useState("Guest");
+  const nameRef = useRef("Guest");
+
   const [room, setRoom] = useState("main");
 
   const [elements, setElements] = useState<Element[]>([]);
   const [redoStack, setRedoStack] = useState<Element[]>([]);
 
   const [users, setUsers] = useState(1);
+
   const [status, setStatus] = useState<
     "connecting" | "connected" | "disconnected"
   >("connecting");
@@ -71,16 +81,60 @@ function App() {
   const [startPoint, setStartPoint] = useState<Point | null>(null);
   const [currentPoint, setCurrentPoint] = useState<Point | null>(null);
 
-  const elementsRef = useRef<Element[]>([]);
+  const [cursors, setCursors] = useState<
+    Record<string, Cursor>
+  >({});
+
+  const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
     elementsRef.current = elements;
   }, [elements]);
 
+  useEffect(() => {
+    nameRef.current = name;
+  }, [name]);
+
   const send = (message: object) => {
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
+    if (
+      socketRef.current &&
+      socketRef.current.readyState === WebSocket.OPEN
+    ) {
       socketRef.current.send(JSON.stringify(message));
     }
+  };
+
+  const drawArrow = (
+    ctx: CanvasRenderingContext2D,
+    from: Point,
+    to: Point,
+    lineWidth: number
+  ) => {
+    const headLength = Math.max(12, lineWidth * 4);
+
+    const angle = Math.atan2(
+      to.y - from.y,
+      to.x - from.x
+    );
+
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+
+    ctx.moveTo(to.x, to.y);
+
+    ctx.lineTo(
+      to.x - headLength * Math.cos(angle - Math.PI / 6),
+      to.y - headLength * Math.sin(angle - Math.PI / 6)
+    );
+
+    ctx.moveTo(to.x, to.y);
+
+    ctx.lineTo(
+      to.x - headLength * Math.cos(angle + Math.PI / 6),
+      to.y - headLength * Math.sin(angle + Math.PI / 6)
+    );
+
+    ctx.stroke();
   };
 
   const drawElement = (
@@ -90,7 +144,9 @@ function App() {
     if (!element.points.length) return;
 
     ctx.strokeStyle =
-      element.type === "eraser" ? "#ffffff" : element.color;
+      element.type === "eraser"
+        ? "#ffffff"
+        : element.color;
 
     ctx.lineWidth = element.size;
     ctx.lineCap = "round";
@@ -100,7 +156,10 @@ function App() {
 
     ctx.beginPath();
 
-    if (element.type === "pen" || element.type === "eraser") {
+    if (
+      element.type === "pen" ||
+      element.type === "eraser"
+    ) {
       ctx.moveTo(first.x, first.y);
 
       for (let i = 1; i < element.points.length; i++) {
@@ -130,23 +189,22 @@ function App() {
     }
 
     if (element.type === "rectangle") {
-      const width = last.x - first.x;
-      const height = last.y - first.y;
-
       ctx.strokeRect(
         first.x,
         first.y,
-        width,
-        height
+        last.x - first.x,
+        last.y - first.y
       );
-
       return;
     }
 
     if (element.type === "circle") {
       const dx = last.x - first.x;
       const dy = last.y - first.y;
-      const radius = Math.sqrt(dx * dx + dy * dy);
+
+      const radius = Math.sqrt(
+        dx * dx + dy * dy
+      );
 
       ctx.arc(
         first.x,
@@ -160,50 +218,7 @@ function App() {
     }
   };
 
-  const drawArrow = (
-    ctx: CanvasRenderingContext2D,
-    from: Point,
-    to: Point,
-    lineWidth: number
-  ) => {
-    const headLength = Math.max(10, lineWidth * 4);
-
-    const angle = Math.atan2(
-      to.y - from.y,
-      to.x - from.x
-    );
-
-    ctx.moveTo(from.x, from.y);
-    ctx.lineTo(to.x, to.y);
-
-    ctx.moveTo(to.x, to.y);
-
-    ctx.lineTo(
-      to.x -
-        headLength *
-          Math.cos(angle - Math.PI / 6),
-      to.y -
-        headLength *
-          Math.sin(angle - Math.PI / 6)
-    );
-
-    ctx.moveTo(to.x, to.y);
-
-    ctx.lineTo(
-      to.x -
-        headLength *
-          Math.cos(angle + Math.PI / 6),
-      to.y -
-        headLength *
-          Math.sin(angle + Math.PI / 6)
-    );
-
-    ctx.stroke();
-  };
-
-  const redrawCanvas = (
-    items: Element[] = elements
-  ) => {
+  const redrawCanvas = () => {
     const canvas = canvasRef.current;
 
     if (!canvas) return;
@@ -217,7 +232,7 @@ function App() {
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-    items.forEach((element) => {
+    elementsRef.current.forEach((element) => {
       drawElement(ctx, element);
     });
 
@@ -228,24 +243,24 @@ function App() {
       tool !== "pen" &&
       tool !== "eraser"
     ) {
-      const preview: Element = {
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+
+      drawElement(ctx, {
         id: "preview",
         type: tool,
         points: [startPoint, currentPoint],
         color,
         size,
-        user: name,
-      };
+        user: nameRef.current,
+      });
 
-      ctx.save();
-      ctx.globalAlpha = 0.65;
-      drawElement(ctx, preview);
       ctx.restore();
     }
   };
 
   useEffect(() => {
-    redrawCanvas(elements);
+    redrawCanvas();
   }, [
     elements,
     isDrawing,
@@ -256,85 +271,189 @@ function App() {
     size,
   ]);
 
+  /* WEBSOCKET + AUTOMATIC RECONNECT */
+
   useEffect(() => {
-    const socket = new WebSocket(WS_URL);
+    let stopped = false;
 
-    socketRef.current = socket;
-    setStatus("connecting");
+    const connect = () => {
+      if (stopped) return;
 
-    socket.onopen = () => {
-      setStatus("connected");
+      setStatus("connecting");
 
-      socket.send(
-        JSON.stringify({
-          type: "join",
-          room,
-          name,
-        })
-      );
-    };
+      const socket = new WebSocket(WS_URL);
 
-    socket.onmessage = (event) => {
-      try {
-        const data: ServerMessage = JSON.parse(
-          event.data
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        if (stopped) return;
+
+        setStatus("connected");
+
+        socket.send(
+          JSON.stringify({
+            type: "join",
+            room,
+            name: nameRef.current,
+          })
         );
+      };
 
-        if (data.type === "draw") {
-          setElements((previous) => [
-            ...previous,
-            data.element,
-          ]);
-          return;
-        }
+      socket.onmessage = (event) => {
+        try {
+          const data: ServerMessage =
+            JSON.parse(event.data);
 
-        if (data.type === "remove") {
-          setElements((previous) =>
-            previous.filter(
-              (element) => element.id !== data.id
-            )
+          if (data.type === "welcome") {
+            myIdRef.current = data.id;
+            return;
+          }
+
+          if (data.type === "sync") {
+            elementsRef.current = data.elements;
+            setElements(data.elements);
+            setRedoStack([]);
+            return;
+          }
+
+          if (data.type === "draw") {
+            const incoming = data.element;
+
+            setElements((previous) => {
+              const index = previous.findIndex(
+                (element) =>
+                  element.id === incoming.id
+              );
+
+              let updated: Element[];
+
+              if (index === -1) {
+                updated = [
+                  ...previous,
+                  incoming,
+                ];
+              } else {
+                updated = [...previous];
+                updated[index] = incoming;
+              }
+
+              elementsRef.current = updated;
+
+              return updated;
+            });
+
+            return;
+          }
+
+          if (data.type === "remove") {
+            setElements((previous) => {
+              const updated =
+                previous.filter(
+                  (element) =>
+                    element.id !== data.id
+                );
+
+              elementsRef.current = updated;
+
+              return updated;
+            });
+
+            return;
+          }
+
+          if (data.type === "clear") {
+            elementsRef.current = [];
+            setElements([]);
+            setRedoStack([]);
+            return;
+          }
+
+          if (data.type === "users") {
+            setUsers(data.count);
+            return;
+          }
+
+          if (data.type === "cursor") {
+            if (data.id === myIdRef.current) {
+              return;
+            }
+
+            setCursors((previous) => ({
+              ...previous,
+              [data.id]: {
+                x: data.x,
+                y: data.y,
+                name: data.name,
+              },
+            }));
+
+            return;
+          }
+
+          if (data.type === "user_left") {
+            setCursors((previous) => {
+              const updated = {
+                ...previous,
+              };
+
+              delete updated[data.id];
+
+              return updated;
+            });
+          }
+        } catch {
+          console.log(
+            "Invalid server message"
           );
-          return;
         }
+      };
 
-        if (data.type === "clear") {
-          setElements([]);
-          setRedoStack([]);
-          return;
-        }
+      socket.onclose = () => {
+        socketRef.current = null;
 
-        if (data.type === "sync") {
-          setElements(data.elements);
-          return;
-        }
+        if (!stopped) {
+          setStatus("disconnected");
 
-        if (data.type === "users") {
-          setUsers(data.count);
+          reconnectTimer.current =
+            window.setTimeout(
+              connect,
+              2500
+            );
         }
-      } catch {
-        console.log("Invalid server message");
-      }
+      };
+
+      socket.onerror = () => {
+        setStatus("disconnected");
+      };
     };
 
-    socket.onclose = () => {
-      setStatus("disconnected");
-    };
-
-    socket.onerror = () => {
-      setStatus("disconnected");
-    };
+    connect();
 
     return () => {
-      socket.close();
+      stopped = true;
+
+      if (reconnectTimer.current) {
+        clearTimeout(
+          reconnectTimer.current
+        );
+      }
+
+      socketRef.current?.close();
+      socketRef.current = null;
+
+      setCursors({});
     };
   }, [room]);
 
+  /* POINTER POSITION */
+
   const getPoint = (
-    event: React.PointerEvent<HTMLCanvasElement>
+    event: PointerEvent<HTMLCanvasElement>
   ): Point => {
     const canvas = canvasRef.current!;
 
-    const rect = canvas.getBoundingClientRect();
+    const rect =
+      canvas.getBoundingClientRect();
 
     return {
       x:
@@ -349,8 +468,22 @@ function App() {
     };
   };
 
+  const sendCursor = (
+    event: PointerEvent<HTMLCanvasElement>
+  ) => {
+    const point = getPoint(event);
+
+    send({
+      type: "cursor",
+      room,
+      x: point.x,
+      y: point.y,
+      name: nameRef.current,
+    });
+  };
+
   const startDrawing = (
-    event: React.PointerEvent<HTMLCanvasElement>
+    event: PointerEvent<HTMLCanvasElement>
   ) => {
     event.preventDefault();
 
@@ -364,33 +497,41 @@ function App() {
     setStartPoint(point);
     setCurrentPoint(point);
 
-    if (tool === "pen" || tool === "eraser") {
+    if (
+      tool === "pen" ||
+      tool === "eraser"
+    ) {
       const element: Element = {
         id: crypto.randomUUID(),
         type: tool,
         points: [point],
         color,
         size,
-        user: name,
+        user: nameRef.current,
       };
 
-      setElements((previous) => [
-        ...previous,
-        element,
-      ]);
+      activeElementId.current =
+        element.id;
 
+      const updated = [
+        ...elementsRef.current,
+        element,
+      ];
+
+      elementsRef.current = updated;
+      setElements(updated);
       setRedoStack([]);
 
       send({
         type: "draw",
-        element,
         room,
+        element,
       });
     }
   };
 
   const draw = (
-    event: React.PointerEvent<HTMLCanvasElement>
+    event: PointerEvent<HTMLCanvasElement>
   ) => {
     if (!isDrawing) return;
 
@@ -398,71 +539,56 @@ function App() {
 
     const point = getPoint(event);
 
+    sendCursor(event);
+
     setCurrentPoint(point);
 
-    if (tool === "pen" || tool === "eraser") {
-      setElements((previous) => {
-        if (!previous.length) return previous;
+    if (
+      tool === "pen" ||
+      tool === "eraser"
+    ) {
+      const id =
+        activeElementId.current;
 
-        const updated = [...previous];
-
-        const last =
-          updated[updated.length - 1];
-
-        if (
-          last.user !== name &&
-          last.type !== tool
-        ) {
-          return previous;
-        }
-
-        const updatedLast: Element = {
-          ...last,
-          points: [...last.points, point],
-        };
-
-        updated[updated.length - 1] =
-          updatedLast;
-
-        return updated;
-      });
+      if (!id) return;
 
       const current =
-        elementsRef.current[
-          elementsRef.current.length - 1
-        ];
+        elementsRef.current.find(
+          (element) =>
+            element.id === id
+        );
 
-      if (current) {
-        const updatedElement: Element = {
-          ...current,
-          points: [...current.points, point],
-        };
+      if (!current) return;
 
-        elementsRef.current = [
-          ...elementsRef.current.slice(0, -1),
-          updatedElement,
-        ];
+      const updatedElement: Element = {
+        ...current,
+        points: [
+          ...current.points,
+          point,
+        ],
+      };
 
-        send({
-          type: "draw",
-          element: {
-            ...updatedElement,
-            id: `${updatedElement.id}-${Date.now()}`,
-            points: [
-              updatedElement.points[
-                updatedElement.points.length - 2
-              ],
-              point,
-            ],
-          },
-          room,
-        });
-      }
+      const updated =
+        elementsRef.current.map(
+          (element) =>
+            element.id === id
+              ? updatedElement
+              : element
+        );
+
+      elementsRef.current = updated;
+      setElements(updated);
+
+      send({
+        type: "draw",
+        room,
+        element: updatedElement,
+      });
     }
   };
 
   const stopDrawing = (
-    event?: React.PointerEvent<HTMLCanvasElement>
+    event?: PointerEvent<HTMLCanvasElement>
   ) => {
     if (!isDrawing) return;
 
@@ -486,40 +612,60 @@ function App() {
       const element: Element = {
         id: crypto.randomUUID(),
         type: tool,
-        points: [startPoint, currentPoint],
+        points: [
+          startPoint,
+          currentPoint,
+        ],
         color,
         size,
-        user: name,
+        user: nameRef.current,
       };
 
-      setElements((previous) => [
-        ...previous,
+      const updated = [
+        ...elementsRef.current,
         element,
-      ]);
+      ];
 
+      elementsRef.current = updated;
+      setElements(updated);
       setRedoStack([]);
 
       send({
         type: "draw",
-        element,
         room,
+        element,
       });
     }
+
+    activeElementId.current = null;
 
     setIsDrawing(false);
     setStartPoint(null);
     setCurrentPoint(null);
   };
 
+  /* UNDO */
+
   const undo = () => {
-    if (!elements.length) return;
+    const ownElements =
+      elementsRef.current.filter(
+        (element) =>
+          element.user === nameRef.current
+      );
+
+    if (!ownElements.length) return;
 
     const last =
-      elements[elements.length - 1];
+      ownElements[ownElements.length - 1];
 
-    setElements((previous) =>
-      previous.slice(0, -1)
-    );
+    const updated =
+      elementsRef.current.filter(
+        (element) =>
+          element.id !== last.id
+      );
+
+    elementsRef.current = updated;
+    setElements(updated);
 
     setRedoStack((previous) => [
       ...previous,
@@ -528,10 +674,12 @@ function App() {
 
     send({
       type: "remove",
-      id: last.id,
       room,
+      id: last.id,
     });
   };
+
+  /* REDO */
 
   const redo = () => {
     if (!redoStack.length) return;
@@ -539,23 +687,29 @@ function App() {
     const element =
       redoStack[redoStack.length - 1];
 
+    const updated = [
+      ...elementsRef.current,
+      element,
+    ];
+
+    elementsRef.current = updated;
+    setElements(updated);
+
     setRedoStack((previous) =>
       previous.slice(0, -1)
     );
 
-    setElements((previous) => [
-      ...previous,
-      element,
-    ]);
-
     send({
       type: "draw",
-      element,
       room,
+      element,
     });
   };
 
+  /* CLEAR */
+
   const clear = () => {
+    elementsRef.current = [];
     setElements([]);
     setRedoStack([]);
 
@@ -565,6 +719,8 @@ function App() {
     });
   };
 
+  /* DOWNLOAD */
+
   const downloadCanvas = () => {
     const canvas = canvasRef.current;
 
@@ -573,12 +729,16 @@ function App() {
     const link =
       document.createElement("a");
 
-    link.download = `canvasly-${room}.png`;
+    link.download =
+      `canvasly-${room}.png`;
 
-    link.href = canvas.toDataURL("image/png");
+    link.href =
+      canvas.toDataURL("image/png");
 
     link.click();
   };
+
+  /* COPY ROOM */
 
   const copyRoomLink = async () => {
     const url =
@@ -587,9 +747,13 @@ function App() {
       )}`;
 
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(
+        url
+      );
 
-      alert("Room link copied!");
+      alert(
+        "Room link copied!"
+      );
     } catch {
       prompt(
         "Copy this room link:",
@@ -598,6 +762,83 @@ function App() {
     }
   };
 
+  /* KEYBOARD SHORTCUTS */
+
+  useEffect(() => {
+    const handleKeyDown = (
+      event: KeyboardEvent
+    ) => {
+      const target =
+        event.target as HTMLElement;
+
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA"
+      ) {
+        return;
+      }
+
+      if (
+        event.ctrlKey &&
+        event.key.toLowerCase() === "z"
+      ) {
+        event.preventDefault();
+        undo();
+        return;
+      }
+
+      if (
+        (event.ctrlKey &&
+          event.key.toLowerCase() === "y") ||
+        (event.ctrlKey &&
+          event.shiftKey &&
+          event.key.toLowerCase() === "z")
+      ) {
+        event.preventDefault();
+        redo();
+        return;
+      }
+
+      const key =
+        event.key.toLowerCase();
+
+      if (key === "p") setTool("pen");
+      if (key === "e") setTool("eraser");
+      if (key === "l") setTool("line");
+      if (key === "a") setTool("arrow");
+      if (key === "r") setTool("rectangle");
+      if (key === "c") setTool("circle");
+    };
+
+    window.addEventListener(
+      "keydown",
+      handleKeyDown
+    );
+
+    return () => {
+      window.removeEventListener(
+        "keydown",
+        handleKeyDown
+      );
+    };
+  });
+
+  /* ROOM FROM URL */
+
+  useEffect(() => {
+    const params =
+      new URLSearchParams(
+        window.location.search
+      );
+
+    const urlRoom =
+      params.get("room");
+
+    if (urlRoom) {
+      setRoom(urlRoom);
+    }
+  }, []);
+
   const changeRoom = (
     value: string
   ) => {
@@ -605,6 +846,30 @@ function App() {
       value.trim() || "main";
 
     setRoom(newRoom);
+
+    window.history.replaceState(
+      null,
+      "",
+      `?room=${encodeURIComponent(
+        newRoom
+      )}`
+    );
+  };
+
+  const zoomIn = () => {
+    setZoom((value) =>
+      Math.min(1.5, value + 0.1)
+    );
+  };
+
+  const zoomOut = () => {
+    setZoom((value) =>
+      Math.max(0.5, value - 0.1)
+    );
+  };
+
+  const resetZoom = () => {
+    setZoom(1);
   };
 
   const toolButton = (
@@ -628,12 +893,16 @@ function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <div className="logo">C</div>
+          <div className="logo">
+            C
+          </div>
 
           <div>
             <h1>Canvasly</h1>
+
             <span>
-              Real-time collaborative whiteboard
+              Real-time collaborative
+              whiteboard
             </span>
           </div>
         </div>
@@ -647,7 +916,7 @@ function App() {
             ? "Connected"
             : status === "connecting"
             ? "Connecting..."
-            : "Disconnected"}
+            : "Reconnecting..."}
         </div>
 
         <div className="top-actions">
@@ -684,15 +953,35 @@ function App() {
 
       <div className="toolbar">
         <div className="tool-group">
-          {toolButton("pen", "✏️ Pen")}
-          {toolButton("eraser", "🧹 Eraser")}
-          {toolButton("line", "／ Line")}
-          {toolButton("arrow", "➜ Arrow")}
+          {toolButton(
+            "pen",
+            "✏️ Pen"
+          )}
+
+          {toolButton(
+            "eraser",
+            "🧹 Eraser"
+          )}
+
+          {toolButton(
+            "line",
+            "／ Line"
+          )}
+
+          {toolButton(
+            "arrow",
+            "➜ Arrow"
+          )}
+
           {toolButton(
             "rectangle",
             "▭ Rectangle"
           )}
-          {toolButton("circle", "◯ Circle")}
+
+          {toolButton(
+            "circle",
+            "◯ Circle"
+          )}
         </div>
 
         <div className="divider" />
@@ -707,7 +996,9 @@ function App() {
             onChange={(e) =>
               setColor(e.target.value)
             }
-            disabled={tool === "eraser"}
+            disabled={
+              tool === "eraser"
+            }
           />
         </label>
 
@@ -722,7 +1013,9 @@ function App() {
             max="30"
             value={size}
             onChange={(e) =>
-              setSize(Number(e.target.value))
+              setSize(
+                Number(e.target.value)
+              )
             }
           />
         </label>
@@ -732,7 +1025,6 @@ function App() {
         <button
           className="action"
           onClick={undo}
-          disabled={!elements.length}
         >
           ↶ Undo
         </button>
@@ -740,7 +1032,9 @@ function App() {
         <button
           className="action"
           onClick={redo}
-          disabled={!redoStack.length}
+          disabled={
+            redoStack.length === 0
+          }
         >
           ↷ Redo
         </button>
@@ -758,6 +1052,31 @@ function App() {
         >
           ⬇️ Download
         </button>
+
+        <div className="divider" />
+
+        <div className="zoom">
+          <button
+            onClick={zoomOut}
+          >
+            −
+          </button>
+
+          <button
+            onClick={resetZoom}
+          >
+            {Math.round(
+              zoom * 100
+            )}
+            %
+          </button>
+
+          <button
+            onClick={zoomIn}
+          >
+            +
+          </button>
+        </div>
       </div>
 
       <main className="workspace">
@@ -772,16 +1091,72 @@ function App() {
             </span>
           </div>
 
-          <canvas
-            ref={canvasRef}
-            width={WIDTH}
-            height={HEIGHT}
-            className="canvas"
-            onPointerDown={startDrawing}
-            onPointerMove={draw}
-            onPointerUp={stopDrawing}
-            onPointerCancel={stopDrawing}
-          />
+          <div className="canvas-scroll">
+            <div
+              className="canvas-stage"
+              style={{
+                width: WIDTH * zoom,
+                height: HEIGHT * zoom,
+              }}
+            >
+              <canvas
+                ref={canvasRef}
+                width={WIDTH}
+                height={HEIGHT}
+                className="canvas"
+                style={{
+                  width:
+                    WIDTH * zoom,
+                  height:
+                    HEIGHT * zoom,
+                }}
+                onPointerDown={
+                  startDrawing
+                }
+                onPointerMove={
+                  draw
+                }
+                onPointerUp={
+                  stopDrawing
+                }
+                onPointerCancel={
+                  stopDrawing
+                }
+                onPointerLeave={
+                  sendCursor
+                }
+              />
+
+              <div className="cursor-layer">
+                {Object.entries(
+                  cursors
+                ).map(
+                  ([id, cursor]) => (
+                    <div
+                      key={id}
+                      className="remote-cursor"
+                      style={{
+                        left:
+                          cursor.x *
+                          zoom,
+                        top:
+                          cursor.y *
+                          zoom,
+                      }}
+                    >
+                      <div className="cursor-arrow">
+                        ➤
+                      </div>
+
+                      <div className="cursor-name">
+                        {cursor.name}
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </main>
 
@@ -791,7 +1166,9 @@ function App() {
         </span>
 
         <span>
-          Room <b>{room}</b> · {users} online
+          P Pen · E Eraser · L Line ·
+          R Rectangle · C Circle ·
+          Ctrl+Z Undo
         </span>
       </footer>
     </div>
