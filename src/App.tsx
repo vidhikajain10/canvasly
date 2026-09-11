@@ -8,6 +8,7 @@ function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const lastPoint = useRef({ x: 0, y: 0 });
+
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
   const [size, setSize] = useState(3);
@@ -17,15 +18,21 @@ function App() {
   const clearCanvas = () => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
-    if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (canvas && ctx) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
   };
 
   const drawLine = (data: any) => {
     const ctx = canvasRef.current?.getContext("2d");
+
     if (!ctx) return;
+
     ctx.strokeStyle = data.color;
     ctx.lineWidth = data.size;
     ctx.lineCap = "round";
+
     ctx.beginPath();
     ctx.moveTo(data.lastX, data.lastY);
     ctx.lineTo(data.x, data.y);
@@ -36,20 +43,34 @@ function App() {
     const socket = new WebSocket(WS_URL);
     socketRef.current = socket;
 
+    socket.onopen = () => {
+      socket.send(JSON.stringify({
+        type: "join",
+        room
+      }));
+    };
+
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      if (data.type === "draw") drawLine(data);
-      if (data.type === "clear") clearCanvas();
+
+      if (data.type === "draw") {
+        drawLine(data);
+      }
+
+      if (data.type === "clear") {
+        clearCanvas();
+      }
     };
 
     return () => socket.close();
-  }, []);
+  }, [room]);
 
   const startDrawing = (e: MouseEvent<HTMLCanvasElement>) => {
     setDrawing(true);
+
     lastPoint.current = {
       x: e.nativeEvent.offsetX,
-      y: e.nativeEvent.offsetY,
+      y: e.nativeEvent.offsetY
     };
   };
 
@@ -65,7 +86,7 @@ function App() {
       color,
       size,
       room,
-      name,
+      name
     };
 
     drawLine(data);
@@ -74,13 +95,22 @@ function App() {
       socketRef.current.send(JSON.stringify(data));
     }
 
-    lastPoint.current = { x: data.x, y: data.y };
+    lastPoint.current = {
+      x: data.x,
+      y: data.y
+    };
   };
 
   const clear = () => {
     clearCanvas();
+
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: "clear", room }));
+      socketRef.current.send(
+        JSON.stringify({
+          type: "clear",
+          room
+        })
+      );
     }
   };
 
@@ -88,21 +118,43 @@ function App() {
     <div className="app">
       <header>
         <h1>Canvasly</h1>
+
         <div className="info">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
-          <input value={room} onChange={(e) => setRoom(e.target.value)} placeholder="Room" />
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Name"
+          />
+
+          <input
+            value={room}
+            onChange={(e) => setRoom(e.target.value)}
+            placeholder="Room"
+          />
         </div>
       </header>
 
       <div className="toolbar">
         <label>
           Color
-          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+          <input
+            type="color"
+            value={color}
+            onChange={(e) => setColor(e.target.value)}
+          />
         </label>
+
         <label>
           Size
-          <input type="range" min="1" max="20" value={size} onChange={(e) => setSize(Number(e.target.value))} />
+          <input
+            type="range"
+            min="1"
+            max="20"
+            value={size}
+            onChange={(e) => setSize(Number(e.target.value))}
+          />
         </label>
+
         <button onClick={clear}>Clear</button>
       </div>
 
