@@ -1,13 +1,18 @@
-```js
+import http from "http";
 import { WebSocketServer } from "ws";
 
 const port = process.env.PORT || 3001;
 
-const server = new WebSocketServer({ port });
+const server = http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end("Canvasly server is running");
+});
 
-server.on("connection", (socket) => {
+const wss = new WebSocketServer({ server });
+
+wss.on("connection", (socket) => {
   socket.on("message", (message) => {
-    server.clients.forEach((client) => {
+    wss.clients.forEach((client) => {
       if (client.readyState === 1) {
         client.send(message.toString());
       }
@@ -15,5 +20,6 @@ server.on("connection", (socket) => {
   });
 });
 
-console.log(`Canvasly server running on port ${port}`);
-```
+server.listen(port, "0.0.0.0", () => {
+  console.log(`Canvasly running on port ${port}`);
+});
