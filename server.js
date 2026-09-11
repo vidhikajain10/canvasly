@@ -13,7 +13,7 @@ const wss = new WebSocketServer({ server });
 wss.on("connection", (socket) => {
   socket.on("message", (message) => {
     wss.clients.forEach((client) => {
-      if (client.readyState === 1) {
+      if (client !== socket && client.readyState === 1) {
         client.send(message.toString());
       }
     });
