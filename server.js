@@ -1,7 +1,9 @@
 ```js
 import { WebSocketServer } from "ws";
 
-const server = new WebSocketServer({ port: 3001 });
+const port = process.env.PORT || 3001;
+
+const server = new WebSocketServer({ port });
 
 server.on("connection", (socket) => {
   socket.on("message", (message) => {
@@ -13,5 +15,5 @@ server.on("connection", (socket) => {
   });
 });
 
-console.log("Canvasly server running on port 3001");
+console.log(`Canvasly server running on port ${port}`);
 ```
