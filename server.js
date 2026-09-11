@@ -3,15 +3,23 @@ import { WebSocketServer } from "ws";
 import crypto from "crypto";
 
 const port = process.env.PORT || 3001;
-const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "").replace(/\/rest\/v1$/, "");
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 async function loadBoard(room) {
-  if (!supabaseUrl || !supabaseKey) return [];
+  if (!supabaseUrl || !supabaseKey) {
+    console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+    return [];
+  }
+
   try {
     const response = await fetch(`${supabaseUrl}/rest/v1/boards?room_id=eq.${encodeURIComponent(room)}&select=elements`, {
-      headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` }
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`
+      }
     });
+
     if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
     const rows = await response.json();
     return Array.isArray(rows[0]?.elements) ? rows[0].elements : [];
@@ -23,6 +31,7 @@ async function loadBoard(room) {
 
 async function saveBoard(room, elements) {
   if (!supabaseUrl || !supabaseKey) return;
+
   try {
     const response = await fetch(`${supabaseUrl}/rest/v1/boards`, {
       method: "POST",
@@ -32,8 +41,13 @@ async function saveBoard(room, elements) {
         "Content-Type": "application/json",
         Prefer: "resolution=merge-duplicates,return=minimal"
       },
-      body: JSON.stringify({ room_id: room, elements, updated_at: new Date().toISOString() })
+      body: JSON.stringify({
+        room_id: room,
+        elements,
+        updated_at: new Date().toISOString()
+      })
     });
+
     if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
   } catch (error) {
     console.error("Supabase save failed:", error);
@@ -84,12 +98,15 @@ wss.on("connection", (socket) => {
       if (data.type === "join") {
         const room = String(data.room || "main").trim() || "main";
         const oldRoom = info.room;
+
         if (oldRoom && oldRoom !== room) {
           broadcast(oldRoom, { type: "user_left", id });
           announceUsers(oldRoom);
         }
+
         info.room = room;
         info.name = String(data.name || "Guest").slice(0, 30);
+
         const elements = await getBoard(room);
         send(socket, { type: "sync", elements });
         announceUsers(room);
