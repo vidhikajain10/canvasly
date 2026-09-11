@@ -1,4 +1,3 @@
-```json
 {
   "name": "canvasly",
   "private": true,
@@ -16,7 +15,5 @@
     "react": "latest",
     "react-dom": "latest",
     "ws": "latest"
-  },
-  "devDependencies": {}
+  }
 }
-```
