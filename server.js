@@ -9,14 +9,32 @@ const server = http.createServer((req, res) => {
 });
 
 const wss = new WebSocketServer({ server });
+const rooms = new Map();
 
 wss.on("connection", (socket) => {
   socket.on("message", (message) => {
+    const data = JSON.parse(message.toString());
+
+    if (data.type === "join") {
+      rooms.set(socket, data.room);
+      return;
+    }
+
+    const room = rooms.get(socket);
+
     wss.clients.forEach((client) => {
-      if (client !== socket && client.readyState === 1) {
-        client.send(message.toString());
+      if (
+        client !== socket &&
+        client.readyState === 1 &&
+        rooms.get(client) === room
+      ) {
+        client.send(JSON.stringify(data));
       }
     });
+  });
+
+  socket.on("close", () => {
+    rooms.delete(socket);
   });
 });
 
