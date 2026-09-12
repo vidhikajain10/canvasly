@@ -9,7 +9,9 @@ const USER_COLORS = ["#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0891b2", "#db
 const MAX_MESSAGE_BYTES = 120000;
 const RATE_WINDOW_MS = 10000;
 const RATE_LIMIT = 80;
-const apiHeaders = () => ({ apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, "Content-Type": "application/json" });
+const apiHeaders = () => supabaseKey?.startsWith("sb_")
+  ? { apikey: supabaseKey, "Content-Type": "application/json" }
+  : { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, "Content-Type": "application/json" };
 const safeRoom = v => String(v || "main").trim().replace(/\s+/g, "-").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80) || "main";
 const safeName = v => String(v || "Guest").trim().slice(0, 30) || "Guest";
 async function loadBoard(room) { if (!supabaseUrl || !supabaseKey) return []; try { const r=await fetch(`${supabaseUrl}/rest/v1/boards?room_id=eq.${encodeURIComponent(room)}&select=elements`,{headers:apiHeaders()}); if(!r.ok)throw new Error(`${r.status} ${await r.text()}`); const rows=await r.json(); return Array.isArray(rows[0]?.elements)?rows[0].elements:[]; } catch(e){console.error("Supabase load failed:",e);return [];} }
