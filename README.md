@@ -62,7 +62,7 @@ The server validates incoming collaboration messages and applies basic limits to
 
 ### Authentication Interface
 
-Canvasly includes a simple sign-in and account creation interface for the project demonstration. Account information is currently handled as a demo browser-side authentication flow and should be replaced with a production authentication provider before using the application with real user accounts.
+Canvasly includes a simple sign-in and account creation interface for the project demonstration. Account information is handled through the configured Supabase authentication flow.
 
 ### AI Workspace Assistant
 
@@ -73,6 +73,17 @@ The integrated AI workspace panel provides lightweight assistance for organizing
 - Recommend layout improvements
 
 The assistant is designed to help users turn visual ideas into clearer plans and workflows.
+
+## Quick Demo
+
+A built-in **Demo** button is available in the top action bar. It opens a short guide explaining the main workflow:
+
+1. **Create or join a room** — enter a room name and use the same room with teammates.
+2. **Draw and add ideas** — use Pen, Shapes, Text, Sticky Notes, and Image tools.
+3. **Collaborate live** — use Share to send the room link to other users.
+4. **Save your work** — board data is persisted and Export creates a PNG snapshot.
+
+The guide also highlights selection, multi-selection, and common keyboard shortcuts. Press `?` to open the guide quickly when you are not typing in a form field.
 
 ## Technology Stack
 
@@ -128,7 +139,7 @@ Example:
 https://your-canvasly-domain/?room=team-project
 ```
 
-Users entering the same room name collaborate on the same board. The Share button copies the current room link so it can be sent to other collaborators.
+Users entering the same room name collaborate on the same board. The Share button copies or shares the current room link so it can be sent to other collaborators.
 
 ## Keyboard Shortcuts
 
@@ -143,6 +154,7 @@ Users entering the same room name collaborate on the same board. The Share butto
 | Enter | Finish text editing |
 | Shift + Enter | Add a new line while editing |
 | Escape | Cancel text editing |
+| ? | Open the quick demo guide |
 
 ## Local Development
 
@@ -162,7 +174,7 @@ The WebSocket backend can be started with the Node server configuration included
 
 ## Environment Variables
 
-The backend uses the following environment variables for Supabase connectivity:
+The frontend uses the configured Supabase URL and browser-safe publishable key. The backend uses:
 
 ```text
 SUPABASE_URL
@@ -175,19 +187,24 @@ The Supabase service-role key must remain on the server and should never be expo
 
 ### Frontend
 
-The frontend can be deployed through Vercel by connecting the GitHub repository and deploying the `main` branch.
+The frontend is deployed through Vercel from the GitHub repository and `main` branch.
 
 ### Backend
 
-The WebSocket server can be deployed as a Node.js service on Render. Configure the required Supabase environment variables in the Render service settings.
+The WebSocket server is deployed as a Node.js service on Render. The required Supabase environment variables are configured in the Render service settings.
 
 ## Project Structure
 
 ```text
 canvasly/
+├── public/
+│   ├── feature-pack.js
+│   └── password-toggle.js
 ├── src/
 │   ├── App.tsx
-│   └── App.css
+│   ├── App.css
+│   ├── sidebar.css
+│   └── ui-fix.css
 ├── server.js
 ├── package.json
 ├── vite.config.ts
@@ -208,9 +225,10 @@ The project currently demonstrates:
 - Collaborative cursors and presence
 - Text and sticky note editing
 - Canvas export
-- Basic authentication UX
-- Basic server-side validation and reliability safeguards
+- Authentication UX
+- Server-side validation and reliability safeguards
 - An integrated AI workspace assistant
+- In-app quick demo instructions
 - Vercel and Render deployment architecture
 
-For production use, authentication, authorization, server-side security, and AI functionality should be connected to production-grade services rather than relying on the current demonstration implementations.
+For production use, authentication, authorization, server-side security, and AI functionality should be reviewed and hardened further before handling sensitive production data.
