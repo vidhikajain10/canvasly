@@ -63,14 +63,16 @@ const wss = new WebSocketServer({ server });
 const users = new Map();
 const boards = new Map();
 const saveTimers = new Map();
+const roomQueues = new Map();
+const roomRevisions = new Map();
 
 function send(socket, message) {
   if (socket.readyState === 1) socket.send(JSON.stringify(message));
 }
 
-function broadcast(room, message, except = null) {
+function broadcast(room, message) {
   for (const [socket, info] of users) {
-    if (info.room === room && socket !== except && socket.readyState === 1) send(socket, message);
+    if (info.room === room && socket.readyState === 1) send(socket, message);
   }
 }
 
@@ -93,6 +95,22 @@ function scheduleSave(room) {
     await saveBoard(room, board);
   }, 350);
   saveTimers.set(room, timer);
+}
+
+function nextRevision(room) {
+  const revision = (roomRevisions.get(room) || 0) + 1;
+  roomRevisions.set(room, revision);
+  return revision;
+}
+
+function enqueueRoomOperation(room, operation) {
+  const previous = roomQueues.get(room) || Promise.resolve();
+  const next = previous
+    .catch(() => {})
+    .then(operation)
+    .catch((error) => console.error("Room operation failed:", error));
+  roomQueues.set(room, next);
+  return next;
 }
 
 wss.on("connection", (socket) => {
@@ -119,7 +137,11 @@ wss.on("connection", (socket) => {
         info.name = String(data.name || "Guest").slice(0, 30);
 
         const elements = await getBoard(room);
-        send(socket, { type: "sync", elements });
+        send(socket, {
+          type: "sync",
+          elements,
+          revision: roomRevisions.get(room) || 0
+        });
         announceUsers(room);
         return;
       }
@@ -128,29 +150,53 @@ wss.on("connection", (socket) => {
       const room = info.room;
 
       if (data.type === "draw" && data.element?.id) {
-        const board = await getBoard(room);
-        const index = board.findIndex((item) => item.id === data.element.id);
-        if (index === -1) board.push(data.element);
-        else board[index] = data.element;
-        boards.set(room, board);
-        broadcast(room, { type: "draw", element: data.element }, socket);
-        scheduleSave(room);
+        enqueueRoomOperation(room, async () => {
+          const board = await getBoard(room);
+          const index = board.findIndex((item) => item.id === data.element.id);
+          if (index === -1) board.push(data.element);
+          else board[index] = data.element;
+          boards.set(room, board);
+
+          const revision = nextRevision(room);
+          broadcast(room, {
+            type: "draw",
+            element: data.element,
+            revision,
+            operation: "upsert"
+          });
+          scheduleSave(room);
+        });
         return;
       }
 
       if (data.type === "remove" && data.id) {
-        const board = await getBoard(room);
-        const next = board.filter((item) => item.id !== data.id);
-        boards.set(room, next);
-        broadcast(room, { type: "remove", id: data.id }, socket);
-        scheduleSave(room);
+        enqueueRoomOperation(room, async () => {
+          const board = await getBoard(room);
+          const next = board.filter((item) => item.id !== data.id);
+          boards.set(room, next);
+
+          const revision = nextRevision(room);
+          broadcast(room, {
+            type: "remove",
+            id: data.id,
+            revision
+          });
+          scheduleSave(room);
+        });
         return;
       }
 
       if (data.type === "clear") {
-        boards.set(room, []);
-        broadcast(room, { type: "clear" }, socket);
-        scheduleSave(room);
+        enqueueRoomOperation(room, async () => {
+          boards.set(room, []);
+
+          const revision = nextRevision(room);
+          broadcast(room, {
+            type: "clear",
+            revision
+          });
+          scheduleSave(room);
+        });
         return;
       }
 
@@ -161,7 +207,7 @@ wss.on("connection", (socket) => {
           x: Number(data.x) || 0,
           y: Number(data.y) || 0,
           name: String(data.name || info.name || "Guest").slice(0, 30)
-        }, socket);
+        });
       }
     } catch (error) {
       console.error("Invalid message:", error);
