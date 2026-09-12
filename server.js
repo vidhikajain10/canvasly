@@ -168,6 +168,7 @@ wss.on("connection", (socket) => {
 
       if (!info.room) return;
       const room = info.room;
+      const opId = typeof data.opId === "string" && data.opId ? data.opId : undefined;
 
       if (data.type === "draw" && data.element?.id) {
         enqueueRoomOperation(room, async () => {
@@ -182,7 +183,8 @@ wss.on("connection", (socket) => {
             type: "draw",
             element: data.element,
             revision,
-            operation: "upsert"
+            operation: "upsert",
+            ...(opId ? { opId } : {})
           });
           scheduleSave(room);
         });
@@ -199,7 +201,8 @@ wss.on("connection", (socket) => {
           broadcast(room, {
             type: "remove",
             id: data.id,
-            revision
+            revision,
+            ...(opId ? { opId } : {})
           });
           scheduleSave(room);
         });
@@ -213,7 +216,8 @@ wss.on("connection", (socket) => {
           const revision = nextRevision(room);
           broadcast(room, {
             type: "clear",
-            revision
+            revision,
+            ...(opId ? { opId } : {})
           });
           scheduleSave(room);
         });
