@@ -8,6 +8,7 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const apiHeaders = () => ({
   apikey: supabaseKey,
+  Authorization: `Bearer ${supabaseKey}`,
   "Content-Type": "application/json"
 });
 
@@ -19,7 +20,7 @@ async function loadBoard(room) {
 
   try {
     const response = await fetch(`${supabaseUrl}/rest/v1/boards?room_id=eq.${encodeURIComponent(room)}&select=elements`, {
-      headers: { apikey: supabaseKey }
+      headers: apiHeaders()
     });
 
     if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
@@ -32,26 +33,34 @@ async function loadBoard(room) {
 }
 
 async function saveBoard(room, elements) {
-  if (!supabaseUrl || !supabaseKey) return;
+  if (!supabaseUrl || !supabaseKey) return false;
 
-  try {
-    const response = await fetch(`${supabaseUrl}/rest/v1/boards`, {
-      method: "POST",
-      headers: {
-        ...apiHeaders(),
-        Prefer: "resolution=merge-duplicates,return=minimal"
-      },
-      body: JSON.stringify({
-        room_id: room,
-        elements,
-        updated_at: new Date().toISOString()
-      })
-    });
+  const payload = JSON.stringify({
+    room_id: room,
+    elements,
+    updated_at: new Date().toISOString()
+  });
 
-    if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
-  } catch (error) {
-    console.error("Supabase save failed:", error);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await fetch(`${supabaseUrl}/rest/v1/boards`, {
+        method: "POST",
+        headers: {
+          ...apiHeaders(),
+          Prefer: "resolution=merge-duplicates,return=minimal"
+        },
+        body: payload
+      });
+
+      if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+      return true;
+    } catch (error) {
+      console.error(`Supabase save failed (attempt ${attempt}/3):`, error);
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+    }
   }
+
+  return false;
 }
 
 const server = http.createServer((req, res) => {
@@ -63,6 +72,7 @@ const wss = new WebSocketServer({ server });
 const users = new Map();
 const boards = new Map();
 const saveTimers = new Map();
+const saveQueues = new Map();
 const roomQueues = new Map();
 const roomRevisions = new Map();
 
@@ -87,13 +97,23 @@ async function getBoard(room) {
   return boards.get(room);
 }
 
+function queueSave(room, elements) {
+  const previous = saveQueues.get(room) || Promise.resolve();
+  const next = previous
+    .catch(() => {})
+    .then(() => saveBoard(room, elements))
+    .catch((error) => console.error("Board persistence queue failed:", error));
+  saveQueues.set(room, next);
+  return next;
+}
+
 function scheduleSave(room) {
   if (saveTimers.has(room)) clearTimeout(saveTimers.get(room));
-  const timer = setTimeout(async () => {
+  const timer = setTimeout(() => {
     saveTimers.delete(room);
-    const board = boards.get(room) || [];
-    await saveBoard(room, board);
-  }, 350);
+    const snapshot = [...(boards.get(room) || [])];
+    queueSave(room, snapshot);
+  }, 500);
   saveTimers.set(room, timer);
 }
 
