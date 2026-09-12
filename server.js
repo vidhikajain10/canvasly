@@ -5,6 +5,7 @@ import crypto from "crypto";
 const port = process.env.PORT || 3001;
 const supabaseUrl = (process.env.SUPABASE_URL || "").replace(/\/$/, "").replace(/\/rest\/v1$/, "");
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const USER_COLORS = ["#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0891b2", "#db2777", "#65a30d", "#7c3aed"];
 
 const apiHeaders = () => ({
   apikey: supabaseKey,
@@ -17,12 +18,10 @@ async function loadBoard(room) {
     console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
     return [];
   }
-
   try {
     const response = await fetch(`${supabaseUrl}/rest/v1/boards?room_id=eq.${encodeURIComponent(room)}&select=elements`, {
       headers: apiHeaders()
     });
-
     if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
     const rows = await response.json();
     return Array.isArray(rows[0]?.elements) ? rows[0].elements : [];
@@ -34,24 +33,14 @@ async function loadBoard(room) {
 
 async function saveBoard(room, elements) {
   if (!supabaseUrl || !supabaseKey) return false;
-
-  const payload = JSON.stringify({
-    room_id: room,
-    elements,
-    updated_at: new Date().toISOString()
-  });
-
+  const payload = JSON.stringify({ room_id: room, elements, updated_at: new Date().toISOString() });
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const response = await fetch(`${supabaseUrl}/rest/v1/boards`, {
         method: "POST",
-        headers: {
-          ...apiHeaders(),
-          Prefer: "resolution=merge-duplicates,return=minimal"
-        },
+        headers: { ...apiHeaders(), Prefer: "resolution=merge-duplicates,return=minimal" },
         body: payload
       });
-
       if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
       return true;
     } catch (error) {
@@ -59,7 +48,6 @@ async function saveBoard(room, elements) {
       if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 500));
     }
   }
-
   return false;
 }
 
@@ -86,10 +74,19 @@ function broadcast(room, message) {
   }
 }
 
-function announceUsers(room) {
-  let count = 0;
-  for (const info of users.values()) if (info.room === room) count++;
-  for (const [socket, info] of users) if (info.room === room) send(socket, { type: "users", count });
+function roomPresence(room) {
+  const result = [];
+  for (const info of users.values()) {
+    if (info.room === room) {
+      result.push({ id: info.id, name: info.name, color: info.color, drawing: Boolean(info.drawing) });
+    }
+  }
+  return result;
+}
+
+function announcePresence(room) {
+  broadcast(room, { type: "presence", users: roomPresence(room) });
+  broadcast(room, { type: "users", count: roomPresence(room).length });
 }
 
 async function getBoard(room) {
@@ -111,8 +108,7 @@ function scheduleSave(room) {
   if (saveTimers.has(room)) clearTimeout(saveTimers.get(room));
   const timer = setTimeout(() => {
     saveTimers.delete(room);
-    const snapshot = [...(boards.get(room) || [])];
-    queueSave(room, snapshot);
+    queueSave(room, [...(boards.get(room) || [])]);
   }, 500);
   saveTimers.set(room, timer);
 }
@@ -135,8 +131,9 @@ function enqueueRoomOperation(room, operation) {
 
 wss.on("connection", (socket) => {
   const id = crypto.randomUUID();
-  users.set(socket, { id, room: null, name: "Guest" });
-  send(socket, { type: "welcome", id });
+  const color = USER_COLORS[users.size % USER_COLORS.length];
+  users.set(socket, { id, room: null, name: "Guest", color, drawing: false });
+  send(socket, { type: "welcome", id, color });
 
   socket.on("message", async (raw) => {
     try {
@@ -147,28 +144,28 @@ wss.on("connection", (socket) => {
       if (data.type === "join") {
         const room = String(data.room || "main").trim() || "main";
         const oldRoom = info.room;
-
         if (oldRoom && oldRoom !== room) {
+          info.drawing = false;
           broadcast(oldRoom, { type: "user_left", id });
-          announceUsers(oldRoom);
+          announcePresence(oldRoom);
         }
-
         info.room = room;
-        info.name = String(data.name || "Guest").slice(0, 30);
-
+        info.name = String(data.name || "Guest").trim().slice(0, 30) || "Guest";
         const elements = await getBoard(room);
-        send(socket, {
-          type: "sync",
-          elements,
-          revision: roomRevisions.get(room) || 0
-        });
-        announceUsers(room);
+        send(socket, { type: "sync", elements, revision: roomRevisions.get(room) || 0 });
+        announcePresence(room);
         return;
       }
 
       if (!info.room) return;
       const room = info.room;
       const opId = typeof data.opId === "string" && data.opId ? data.opId : undefined;
+
+      if (data.type === "activity") {
+        info.drawing = Boolean(data.drawing);
+        announcePresence(room);
+        return;
+      }
 
       if (data.type === "draw" && data.element?.id) {
         enqueueRoomOperation(room, async () => {
@@ -177,7 +174,6 @@ wss.on("connection", (socket) => {
           if (index === -1) board.push(data.element);
           else board[index] = data.element;
           boards.set(room, board);
-
           const revision = nextRevision(room);
           broadcast(room, {
             type: "draw",
@@ -194,16 +190,9 @@ wss.on("connection", (socket) => {
       if (data.type === "remove" && data.id) {
         enqueueRoomOperation(room, async () => {
           const board = await getBoard(room);
-          const next = board.filter((item) => item.id !== data.id);
-          boards.set(room, next);
-
+          boards.set(room, board.filter((item) => item.id !== data.id));
           const revision = nextRevision(room);
-          broadcast(room, {
-            type: "remove",
-            id: data.id,
-            revision,
-            ...(opId ? { opId } : {})
-          });
+          broadcast(room, { type: "remove", id: data.id, revision, ...(opId ? { opId } : {}) });
           scheduleSave(room);
         });
         return;
@@ -212,13 +201,8 @@ wss.on("connection", (socket) => {
       if (data.type === "clear") {
         enqueueRoomOperation(room, async () => {
           boards.set(room, []);
-
           const revision = nextRevision(room);
-          broadcast(room, {
-            type: "clear",
-            revision,
-            ...(opId ? { opId } : {})
-          });
+          broadcast(room, { type: "clear", revision, ...(opId ? { opId } : {}) });
           scheduleSave(room);
         });
         return;
@@ -230,7 +214,8 @@ wss.on("connection", (socket) => {
           id,
           x: Number(data.x) || 0,
           y: Number(data.y) || 0,
-          name: String(data.name || info.name || "Guest").slice(0, 30)
+          name: info.name,
+          color: info.color
         });
       }
     } catch (error) {
@@ -244,7 +229,7 @@ wss.on("connection", (socket) => {
     users.delete(socket);
     if (info.room) {
       broadcast(info.room, { type: "user_left", id: info.id });
-      announceUsers(info.room);
+      announcePresence(info.room);
     }
   });
 });
