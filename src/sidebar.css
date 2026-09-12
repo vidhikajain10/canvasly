@@ -1,0 +1,28 @@
+/* Canvasly left tool rail */
+.toolbar{position:fixed;left:0;top:76px;bottom:42px;width:178px;min-height:0;height:auto;padding:14px 10px;display:flex;flex-direction:column;align-items:stretch;gap:7px;overflow-y:auto;overflow-x:hidden;background:#faf5eb;border-right:1px solid #d0c6b6;border-bottom:0;z-index:30;box-shadow:5px 0 18px rgba(45,37,27,.08)}
+.toolbar .tool-group{display:flex;flex-direction:column;gap:5px}
+.toolbar .tool{width:100%;height:42px;display:flex;align-items:center;gap:11px;padding:0 12px;text-align:left;border:1px solid transparent!important;border-radius:4px;background:transparent!important;color:#514b43!important;font-weight:600}
+.toolbar .tool::before{width:22px;text-align:center;font-size:18px;line-height:1;font-weight:400}
+.toolbar .tool:nth-child(1)::before{content:'↖'}
+.toolbar .tool:nth-child(2)::before{content:'✎'}
+.toolbar .tool:nth-child(3)::before{content:'⌫'}
+.toolbar .tool:nth-child(4)::before{content:'╱'}
+.toolbar .tool:nth-child(5)::before{content:'➜'}
+.toolbar .tool:nth-child(6)::before{content:'▭'}
+.toolbar .tool:nth-child(7)::before{content:'○'}
+.toolbar .tool:nth-child(8)::before{content:'T'}
+.toolbar .tool:nth-child(9)::before{content:'▤'}
+.toolbar .tool:hover{background:#eee6d8!important}
+.toolbar .tool.active{background:#1c3745!important;color:#fff!important;box-shadow:inset 3px 0 #c89b4d}
+.toolbar>.divider{width:100%;height:1px;margin:4px 0;background:#d2c8b9}
+.toolbar>label{min-height:38px;padding:5px 8px;border:1px solid #ddd3c3;border-radius:4px;background:#f5eee2;display:flex;justify-content:space-between}
+.toolbar>label input[type=range]{width:82px}
+.toolbar>label input[type=color]{width:34px;height:28px}
+.toolbar>button:not(.tool){width:100%;height:38px;text-align:left;padding-left:12px;border-color:#d1c6b5}
+.toolbar>button:not(.tool)::first-letter{font-size:17px}
+.toolbar>label:has(input[type=checkbox]){justify-content:flex-start;gap:8px}
+.workspace{margin-left:178px;padding-left:22px}
+.ai-panel{left:195px;right:auto;top:92px}
+footer{padding-left:200px}
+@media(max-width:950px){.toolbar{top:128px;bottom:42px;width:160px}.workspace{margin-left:160px}.ai-panel{left:172px}.topbar{padding-left:12px}}
+@media(max-width:650px){.toolbar{top:120px;width:68px;padding:10px 7px}.toolbar .tool{justify-content:center;padding:0}.toolbar .tool{font-size:0}.toolbar .tool::before{font-size:19px}.toolbar>label,.toolbar>button:not(.tool),.toolbar>.divider{display:none}.workspace{margin-left:68px;padding:10px}.ai-panel{left:78px;right:10px;width:auto}footer{padding-left:80px}}
