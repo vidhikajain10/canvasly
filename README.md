@@ -1,24 +1,49 @@
 # Canvasly 🎨
 
-**Canvasly** is a real-time collaborative whiteboard where multiple people can draw, edit, and collaborate together in shared rooms.
+**Canvasly** is a real-time collaborative whiteboard where multiple people can draw, edit, organize ideas, and collaborate together in shared rooms.
 
 ## ✨ Features
 
-- Real-time collaborative drawing with WebSockets
-- Shareable, room-specific URLs
-- Room isolation and persistent board state
-- Room-specific online user count
-- Live remote cursors with user names
-- Select, move, resize, and delete objects
-- Pen, eraser, line, arrow, rectangle, and circle tools
-- Custom colors and brush sizes
-- Undo / redo
-- Clear the room for everyone
-- Zoom controls
-- Download the canvas as PNG
-- Automatic WebSocket reconnection
-- Supabase persistence across refreshes and reconnects
-- Responsive desktop/mobile interface
+### Phase 8 — Advanced Canvas
+- Text tool with clean editor modal
+- Sticky notes
+- Filled and outline rectangles/circles
+- Multi-select with Shift
+- Copy / paste / duplicate
+- Delete, undo / redo
+- Space + drag panning
+- Zoom and fit-to-view
+- PNG export
+
+### Phase 9 — Authentication UX
+- Sign in / Create account screens
+- Account name derived from email
+- Sign out
+- Submission-friendly auth flow with a clear production-auth upgrade path
+
+### Phase 10 — Reliability & Security
+- Room/name input sanitization
+- WebSocket maximum message size
+- Per-connection rate limiting
+- Object and point-count validation
+- Safe server-side persistence queue
+- Supabase secret remains server-side
+- Automatic WebSocket reconnect
+- Persistent room state
+
+### Phase 11 — AI Workspace Assistant
+- Board analysis
+- Suggested workflow generation
+- Layout improvement suggestions
+- AI panel integrated into the canvas UI
+
+### Phase 12 — Portfolio / Submission Polish
+- Clean responsive interface
+- Collaboration status
+- Room sharing
+- Live collaborator presence and cursors
+- Keyboard shortcut help
+- Clear feature hierarchy and export flow
 
 ## 🧱 Tech Stack
 
@@ -37,74 +62,46 @@ Browser C ──┘                    │
                                  └── broadcasts room events
 ```
 
-Each room has its own board state. When a user joins a room, the server loads that room's saved board and synchronizes it to the client. Drawing and object-editing changes are broadcast to other users and persisted to Supabase.
+Each room has its own board state. The server synchronizes room state, broadcasts edits, and persists boards to Supabase.
 
 ## 🔗 Room Sharing
 
-Rooms use the URL format:
+Rooms use a URL such as:
 
 `https://your-canvasly-domain/?room=team-project`
 
-Type a room name and choose **Join Room**, then use **Share** to copy a link for that room. Different room names maintain separate boards.
-
-## 🎯 Object Editing
-
-Select **↖ Select** to interact with existing objects:
-
-- Click an object to select it
-- Drag it to move it
-- Drag a corner handle to resize it
-- Press **Delete** or **Backspace** to remove it
-- Use the **Delete** toolbar action as an alternative
-
-Edits use the same WebSocket event stream as drawing, so other users receive the updated object state in real time.
+Join a room, then use **Share** to copy its link. Different room names maintain separate boards.
 
 ## 🚀 Deployment
 
 ### Frontend — Vercel
 
-Connect the GitHub repository to Vercel. Every push to `main` automatically creates a new frontend deployment.
+The GitHub repository is connected to Vercel so pushes to `main` can trigger frontend deployments automatically.
 
 ### Backend — Render
 
-Deploy `server.js` as a Node web service with WebSockets enabled.
-
-Required environment variables:
+`server.js` runs as a Node WebSocket service. Required environment variables:
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
-Keep the Supabase secret key only on the backend. Never expose it in frontend code or commit it to GitHub.
+Keep the Supabase service-role key only on the backend.
 
-## 🗄️ Supabase Table
+## 🧪 Submission QA
 
-```sql
-create table if not exists public.boards (
-  room_id text primary key,
-  elements jsonb not null default '[]'::jsonb,
-  updated_at timestamptz not null default now()
-);
-
-alter table public.boards enable row level security;
-```
-
-## 🧪 Final QA Checklist
-
-- Open two browser tabs in the same room and draw in both directions
-- Verify the online user count changes when a tab closes
-- Switch to a different room and verify its board is isolated
-- Refresh a room and verify its board persists
-- Select, move, resize, and delete objects
-- Verify edits appear for collaborators
-- Test undo / redo and clear
-- Test shareable room links
-- Test zoom and PNG download
-- Confirm reconnect behavior after a temporary connection loss
+- Sign in / create account
+- Join a room and share the room link
+- Draw with multiple tools
+- Add text and sticky notes
+- Select, move, resize, copy/paste and delete objects
+- Test undo/redo
+- Test zoom, pan and export
+- Open two tabs and verify realtime collaboration
+- Refresh and verify persistence
+- Open the AI panel and run board analysis/workflow/layout suggestions
 
 ## 📌 Project Status
 
-Canvasly is deployed as a working real-time collaborative whiteboard with room-based collaboration, persistent storage, object editing, and responsive UI.
+**Canvasly — Phases 1–12 implemented for the final R&D submission.**
 
-## 👩‍💻 Project
-
-Built as an R&D project exploring real-time collaboration, WebSockets, browser Canvas rendering, shared state synchronization, persistence, and frontend interaction design.
+The project demonstrates real-time collaboration, WebSockets, shared state synchronization, browser Canvas rendering, persistence, authentication UX, server safeguards, AI-assisted workflow ideas, and deployment architecture.
