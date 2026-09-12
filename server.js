@@ -55,13 +55,14 @@ async function saveBoard(room, elements) {
 }
 
 const server = http.createServer((req, res) => {
-  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
   res.end("Canvasly server is running");
 });
 
 const wss = new WebSocketServer({ server });
 const users = new Map();
 const boards = new Map();
+const saveTimers = new Map();
 
 function send(socket, message) {
   if (socket.readyState === 1) socket.send(JSON.stringify(message));
@@ -82,6 +83,16 @@ function announceUsers(room) {
 async function getBoard(room) {
   if (!boards.has(room)) boards.set(room, await loadBoard(room));
   return boards.get(room);
+}
+
+function scheduleSave(room) {
+  if (saveTimers.has(room)) clearTimeout(saveTimers.get(room));
+  const timer = setTimeout(async () => {
+    saveTimers.delete(room);
+    const board = boards.get(room) || [];
+    await saveBoard(room, board);
+  }, 350);
+  saveTimers.set(room, timer);
 }
 
 wss.on("connection", (socket) => {
@@ -122,8 +133,8 @@ wss.on("connection", (socket) => {
         if (index === -1) board.push(data.element);
         else board[index] = data.element;
         boards.set(room, board);
-        await saveBoard(room, board);
         broadcast(room, { type: "draw", element: data.element }, socket);
+        scheduleSave(room);
         return;
       }
 
@@ -131,15 +142,15 @@ wss.on("connection", (socket) => {
         const board = await getBoard(room);
         const next = board.filter((item) => item.id !== data.id);
         boards.set(room, next);
-        await saveBoard(room, next);
         broadcast(room, { type: "remove", id: data.id }, socket);
+        scheduleSave(room);
         return;
       }
 
       if (data.type === "clear") {
         boards.set(room, []);
-        await saveBoard(room, []);
         broadcast(room, { type: "clear" }, socket);
+        scheduleSave(room);
         return;
       }
 
