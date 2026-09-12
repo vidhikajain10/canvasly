@@ -1,107 +1,216 @@
-# Canvasly 🎨
+# Canvasly
 
-**Canvasly** is a real-time collaborative whiteboard where multiple people can draw, edit, organize ideas, and collaborate together in shared rooms.
+Canvasly is a real-time collaborative whiteboard built for teams, students, and individuals who want to visually develop ideas in a shared workspace.
 
-## ✨ Features
+Users can create and edit drawings, diagrams, text, and sticky notes on a shared canvas. Multiple users can work in the same room at the same time, with changes synchronized through WebSockets and board state persisted for later use.
 
-### Phase 8 — Advanced Canvas
-- Text tool with clean editor modal
-- Sticky notes
-- Filled and outline rectangles/circles
-- Multi-select with Shift
-- Copy / paste / duplicate
-- Delete, undo / redo
-- Space + drag panning
-- Zoom and fit-to-view
-- PNG export
+## Overview
 
-### Phase 9 — Authentication UX
-- Sign in / Create account screens
-- Account name derived from email
-- Sign out
-- Submission-friendly auth flow with a clear production-auth upgrade path
+Canvasly combines an interactive browser canvas with real-time collaboration and persistent room-based workspaces. A user can create a room, share the room link, and collaborate with others without manually refreshing the page.
 
-### Phase 10 — Reliability & Security
-- Room/name input sanitization
-- WebSocket maximum message size
-- Per-connection rate limiting
-- Object and point-count validation
-- Safe server-side persistence queue
-- Supabase secret remains server-side
-- Automatic WebSocket reconnect
-- Persistent room state
+The application is designed as a practical demonstration of real-time web application development, collaborative state synchronization, browser-based graphics, persistence, and deployment.
 
-### Phase 11 — AI Workspace Assistant
-- Board analysis
-- Suggested workflow generation
-- Layout improvement suggestions
-- AI panel integrated into the canvas UI
+## Features
 
-### Phase 12 — Portfolio / Submission Polish
-- Clean responsive interface
-- Collaboration status
-- Room sharing
-- Live collaborator presence and cursors
-- Keyboard shortcut help
-- Clear feature hierarchy and export flow
+### Collaborative Canvas
 
-## 🧱 Tech Stack
+- Freehand drawing with pen and eraser tools
+- Lines and arrows for diagrams and connections
+- Rectangles and circles with optional fill
+- Text placed directly on the canvas
+- Sticky notes with customizable colors
+- Object selection and movement
+- Multi-selection using Shift
+- Copy, paste, duplicate, and delete
+- Undo and redo
+- Zoom and fit-to-view controls
+- Space + drag canvas panning
+- Export the canvas as a PNG image
 
-**Frontend:** React + TypeScript + Vite + CSS  
-**Realtime:** Node.js + WebSocket (`ws`)  
-**Database:** Supabase PostgreSQL  
-**Frontend hosting:** Vercel  
-**Backend hosting:** Render
+### Text and Sticky Note Editing
 
-## 🏗️ Architecture
+Canvasly provides direct editing for text-based objects. Select the Text or Sticky tool, click on the canvas, and start typing at that location.
+
+Text and sticky notes support additional formatting options including:
+
+- Multiple font families
+- Font size control
+- Bold and italic styles
+- Text alignment
+- Text color
+- Sticky note background colors
+- Multi-line text
+- Enter to finish editing
+- Shift + Enter for a new line
+- Escape to cancel editing
+
+### Real-Time Collaboration
+
+- Shared rooms using unique room names
+- WebSocket-based synchronization
+- Live collaborator presence
+- Remote collaborator cursors
+- Drawing activity indicators
+- Shared board updates without page refreshes
+- Room links that can be copied and shared
+
+### Persistence and Reliability
+
+Board state is persisted so work can be restored after refreshing the page. The application also maintains local room state in the browser and reconnects to the WebSocket server when a connection is interrupted.
+
+The server validates incoming collaboration messages and applies basic limits to protect the shared workspace from malformed or excessive requests.
+
+### Authentication Interface
+
+Canvasly includes a simple sign-in and account creation interface for the project demonstration. Account information is currently handled as a demo browser-side authentication flow and should be replaced with a production authentication provider before using the application with real user accounts.
+
+### AI Workspace Assistant
+
+The integrated AI workspace panel provides lightweight assistance for organizing a board. It can:
+
+- Analyze the current board
+- Suggest a workflow
+- Recommend layout improvements
+
+The assistant is designed to help users turn visual ideas into clearer plans and workflows.
+
+## Technology Stack
+
+### Frontend
+
+- React
+- TypeScript
+- Vite
+- CSS
+- HTML Canvas API
+
+### Backend
+
+- Node.js
+- WebSocket using `ws`
+
+### Database
+
+- Supabase PostgreSQL
+
+### Deployment
+
+- Vercel for the frontend
+- Render for the WebSocket backend
+
+## Architecture
 
 ```text
-Browser A ──┐
-Browser B ──┼── WebSocket ──> Node.js server ──> Supabase
-Browser C ──┘                    │
-                                 └── broadcasts room events
+Users
+  |
+  | Browser
+  v
+React + Canvas
+  |
+  | WebSocket
+  v
+Node.js WebSocket Server
+  |
+  | Persistence
+  v
+Supabase PostgreSQL
 ```
 
-Each room has its own board state. The server synchronizes room state, broadcasts edits, and persists boards to Supabase.
+Each room has an independent board state. Clients connect to the WebSocket server, join a room, send canvas operations, and receive updates from other users in the same room. The server handles synchronization and persistence.
 
-## 🔗 Room Sharing
+## Room Sharing
 
-Rooms use a URL such as:
+A Canvasly room is identified through the `room` URL parameter.
 
-`https://your-canvasly-domain/?room=team-project`
+Example:
 
-Join a room, then use **Share** to copy its link. Different room names maintain separate boards.
+```text
+https://your-canvasly-domain/?room=team-project
+```
 
-## 🚀 Deployment
+Users entering the same room name collaborate on the same board. The Share button copies the current room link so it can be sent to other collaborators.
 
-### Frontend — Vercel
+## Keyboard Shortcuts
 
-The GitHub repository is connected to Vercel so pushes to `main` can trigger frontend deployments automatically.
+| Shortcut | Action |
+|---|---|
+| Ctrl/Cmd + Z | Undo |
+| Ctrl/Cmd + Y | Redo |
+| Ctrl/Cmd + C | Copy selected objects |
+| Ctrl/Cmd + V | Paste objects |
+| Delete / Backspace | Delete selected objects |
+| Space + Drag | Pan the canvas |
+| Enter | Finish text editing |
+| Shift + Enter | Add a new line while editing |
+| Escape | Cancel text editing |
 
-### Backend — Render
+## Local Development
 
-`server.js` runs as a Node WebSocket service. Required environment variables:
+Install dependencies:
 
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
+```bash
+npm install
+```
 
-Keep the Supabase service-role key only on the backend.
+Start the frontend development server:
 
-## 🧪 Submission QA
+```bash
+npm run dev
+```
 
-- Sign in / create account
-- Join a room and share the room link
-- Draw with multiple tools
-- Add text and sticky notes
-- Select, move, resize, copy/paste and delete objects
-- Test undo/redo
-- Test zoom, pan and export
-- Open two tabs and verify realtime collaboration
-- Refresh and verify persistence
-- Open the AI panel and run board analysis/workflow/layout suggestions
+The WebSocket backend can be started with the Node server configuration included in the repository.
 
-## 📌 Project Status
+## Environment Variables
 
-**Canvasly — Phases 1–12 implemented for the final R&D submission.**
+The backend uses the following environment variables for Supabase connectivity:
 
-The project demonstrates real-time collaboration, WebSockets, shared state synchronization, browser Canvas rendering, persistence, authentication UX, server safeguards, AI-assisted workflow ideas, and deployment architecture.
+```text
+SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+```
+
+The Supabase service-role key must remain on the server and should never be exposed in frontend code.
+
+## Deployment
+
+### Frontend
+
+The frontend can be deployed through Vercel by connecting the GitHub repository and deploying the `main` branch.
+
+### Backend
+
+The WebSocket server can be deployed as a Node.js service on Render. Configure the required Supabase environment variables in the Render service settings.
+
+## Project Structure
+
+```text
+canvasly/
+├── src/
+│   ├── App.tsx
+│   └── App.css
+├── server.js
+├── package.json
+├── vite.config.ts
+└── README.md
+```
+
+## Current Project Status
+
+Canvasly is a working collaborative whiteboard prototype suitable for demonstration and R&D submission purposes.
+
+The project currently demonstrates:
+
+- Interactive browser canvas rendering
+- Real-time multi-user collaboration
+- WebSocket communication
+- Room-based shared state
+- Persistent board data
+- Collaborative cursors and presence
+- Text and sticky note editing
+- Canvas export
+- Basic authentication UX
+- Basic server-side validation and reliability safeguards
+- An integrated AI workspace assistant
+- Vercel and Render deployment architecture
+
+For production use, authentication, authorization, server-side security, and AI functionality should be connected to production-grade services rather than relying on the current demonstration implementations.
